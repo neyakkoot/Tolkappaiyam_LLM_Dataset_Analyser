@@ -1,0 +1,127 @@
+"""
+தொல்காப்பிய எழுத்ததிகார கேள்வி-பதில் அமைப்பு
+===========================================
+
+இந்த நிரல் தொகுப்பு தொல்காப்பிய எழுத்ததிகாரத்தின் தொகைமரபு இயலுக்கான கேள்வி-பதில் அமைப்பை உருவாக்குகிறது.
+
+முக்கிய அம்சங்கள்:
+---------------
+1. தமிழ் உரை பகுப்பாய்வு
+2. கேள்வி-பதில் பொருத்தம் கண்டறிதல்
+3. புதிய பதில்கள் உருவாக்குதல்
+4. தர மதிப்பீடு
+
+நிறுவல்:
+-------
+பின்வரும் பொதிகள் தேவை:
+- pandas
+- pytest (சோதனைக்கு மட்டும்)
+
+pip install pandas pytest
+
+பயன்பாடு:
+--------
+```python
+from tamil_qa_system import TamilQASystem
+
+# அமைப்பை துவக்குதல்
+qa_system = TamilQASystem("tholkaappiyam_dataset.csv")
+
+# புதிய கேள்விக்கு பதில் பெறுதல்
+answer, similar = qa_system.generate_new_answer("எழுத்துக்களின் வகைகள் யாவை?")
+```
+"""
+
+import pytest
+from tamil_qa_system import TamilQASystem
+import pandas as pd
+import tempfile
+import os
+
+class TestTamilQASystem:
+    @pytest.fixture
+    def sample_data(self):
+        """சோதனைக்கான மாதிரி தரவுகளை உருவாக்குதல்"""
+        data = {
+            'Prompt': [
+                'எழுத்துக்களின் வகைகள் யாவை?',
+                'உயிர் எழுத்துக்கள் எத்தனை?',
+                'மெய் எழுத்துக்கள் எவை?'
+            ],
+            'Response': [
+                'எழுத்துக்கள் உயிர், மெய், உயிர்மெய் என மூவகைப்படும்.',
+                'உயிர் எழுத்துக்கள் பன்னிரண்டு ஆகும்.',
+                'க் முதல் ன் வரை பதினெட்டு மெய்களாகும்.'
+            ]
+        }
+        return pd.DataFrame(data)
+
+    @pytest.fixture
+    def qa_system(self, sample_data):
+        """சோதனைக்கான QA அமைப்பை உருவாக்குதல்"""
+        with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as f:
+            sample_data.to_csv(f.name, index=False)
+            qa_system = TamilQASystem(f.name)
+        yield qa_system
+        os.unlink(f.name)
+
+    def test_tokenize_tamil_text(self, qa_system):
+        """தமிழ் உரை பிரித்தல் சோதனை"""
+        text = "எழுத்துக்கள் மூன்று வகைப்படும்."
+        tokens = qa_system.tokenize_tamil_text(text)
+        assert len(tokens) == 3
+        assert tokens == ['எழுத்துக்கள்', 'மூன்று', 'வகைப்படும்']
+
+    def test_create_question_prompt(self, qa_system):
+        """வினவல் உருவாக்கம் சோதனை"""
+        question = "எழுத்து என்றால் என்ன?"
+        prompt = qa_system.create_question_prompt(question)
+        assert prompt.startswith("கேள்வி:")
+        assert "பதில் தருக:" in prompt
+
+    def test_evaluate_answer(self, qa_system):
+        """பதில் மதிப்பீடு சோதனை"""
+        expected = "எழுத்துக்கள் மூன்று வகைப்படும்."
+        actual = "எழுத்துக்கள் மூன்று வகையாகும்."
+        accuracy, grade = qa_system.evaluate_answer(expected, actual)
+        assert isinstance(accuracy, float)
+        assert grade in ['A', 'B', 'C', 'D', 'F']
+
+    def test_find_similar_questions(self, qa_system):
+        """ஒத்த கேள்விகள் கண்டறிதல் சோதனை"""
+        question = "எழுத்து வகைகள் என்ன?"
+        similar = qa_system.find_similar_questions(question)
+        assert len(similar) > 0
+        assert all(isinstance(s[1], float) for s in similar)
+
+    def test_generate_new_answer(self, qa_system):
+        """புதிய பதில் உருவாக்கம் சோதனை"""
+        question = "எழுத்துக்களின் வகைகள் என்ன?"
+        answer, similar = qa_system.generate_new_answer(question)
+        assert isinstance(answer, str)
+        assert len(answer) > 0
+        assert isinstance(similar, list)
+
+    def test_analyze_dataset(self, qa_system):
+        """தரவுத்தள பகுப்பாய்வு சோதனை"""
+        results = qa_system.analyze_dataset()
+        assert isinstance(results, pd.DataFrame)
+        required_columns = [
+            'Question', 'Question_Tokens', 'Answer',
+            'Answer_Tokens', 'Prompt', 'Accuracy', 'Grade'
+        ]
+        assert all(col in results.columns for col in required_columns)
+
+def test_edge_cases(qa_system):
+    """எல்லை நிலைகள் சோதனை"""
+    
+    # வெற்று உரை
+    assert len(qa_system.tokenize_tamil_text("")) == 0
+    
+    # தவறான கேள்வி
+    answer, similar = qa_system.generate_new_answer("xyz123")
+    assert isinstance(answer, str)
+    assert len(similar) == 0
+
+if __name__ == "__main__":
+    pytest.main([__file__])
